@@ -1,22 +1,50 @@
-import aqt
 import os
 import shutil
-from aqt import mw
-from aqt import qt
-from aqt.utils import tooltip
-from aqt import gui_hooks
-from anki.hooks import addHook
 import subprocess
+
+import aqt
+from anki.hooks import addHook
+from aqt import gui_hooks, mw, qt
+from aqt.utils import tooltip
 
 
 def figure_out_terminal():
-    terminal = os.path.expandvars("$TERMINAL")
+    terminal = os.path.expandvars("$TERM")
 
     if terminal is not None and len(terminal) != 0:
         return terminal
 
-    terminals = ["kitty", "alacritty", "hyper", "wezterm", "st", "x-terminal-emulator", "mate-terminal", "gnome-terminal", "terminator", "xfce4-terminal", "urxvt", "rxvt", "termit",
-                 "Eterm", "aterm", "uxterm", "xterm", "roxterm", "termite", "lxterminal", "terminology", "qterminal", "lilyterm", "tilix", "terminix", "konsole", "guake", "tilda", "rio"]
+    terminals = [
+        "kitty",
+        "alacritty",
+        "hyper",
+        "wezterm",
+        "st",
+        "x-terminal-emulator",
+        "mate-terminal",
+        "gnome-terminal",
+        "terminator",
+        "xfce4-terminal",
+        "urxvt",
+        "rxvt",
+        "termit",
+        "Eterm",
+        "aterm",
+        "uxterm",
+        "xterm",
+        "roxterm",
+        "termite",
+        "lxterminal",
+        "terminology",
+        "qterminal",
+        "lilyterm",
+        "tilix",
+        "terminix",
+        "konsole",
+        "guake",
+        "tilda",
+        "rio",
+    ]
 
     for it in terminals:
         if shutil.which(it) is not None:
@@ -27,16 +55,23 @@ def figure_out_terminal():
 
 def open_link(note_id, open_type, query, card_id):
     config = mw.addonManager.getConfig(__name__)
-    terminal = config['terminal']
+    terminal = config["terminal"]
+    editor = config["editor"]
     run_last_tooltip = True
 
     if terminal is None or len(terminal) == 0:
         terminal = figure_out_terminal()
         if terminal is None:
-            tooltip("Terminal not specified in config and could not find any sensible terminal to run. Please specify a terminal in config")
+            tooltip(
+                "Terminal not specified in config and could not find any sensible terminal to run. Please specify a terminal in config"
+            )
             return
         tooltip(
-            f"Terminal not specified in config. Found a sensible terminal '{terminal}' to use")
+            f"Terminal not specified in config. Found a sensible terminal '{terminal}' to use"
+        )
+        run_last_tooltip = False
+    if editor is None:
+        tooltip(f"Editor not specified in config. Using nvim as default")
         run_last_tooltip = False
 
     if len(terminal) == 0 or str.find(terminal, " ") > 0:
@@ -44,11 +79,14 @@ def open_link(note_id, open_type, query, card_id):
         return
 
     subprocess.Popen(
-        [terminal, "nvim",
-            f"+lua require([[anki]])._open_note([[{note_id}]], [[{card_id}]], [[{open_type}]], [[{query}]])"],
+        [
+            terminal,
+            editor,
+            f"+lua require([[anki]])._open_note([[{note_id}]], [[{card_id}]], [[{open_type}]], [[{query}]])",
+        ],
         stdin=None,
         stdout=None,
-        stderr=None
+        stderr=None,
     )
     run_last_tooltip and tooltip("Opened note in Neovim")
 
@@ -76,7 +114,7 @@ def open_link_reviewer():
 
 def addEmacsLinkActionToMenu(menu, f):
     menu.addSeparator()
-    a = menu.addAction('Open Note in Neovim')
+    a = menu.addAction("Open Note in Neovim")
     a.setShortcut(qt.QKeySequence("Ctrl+O"))
     a.triggered.connect(f)
 
@@ -84,10 +122,10 @@ def addEmacsLinkActionToMenu(menu, f):
 def insert_reviewer_more_action(self, m):
     if mw.state != "review":
         return
-    a = m.addAction('Browse Creation of This Card')
+    a = m.addAction("Browse Creation of This Card")
     a.setShortcut(aqt.qt.QKeySequence("c"))
     a.triggered.connect(lambda _, s=mw.reviewer: qt.browse_this_card(s))
-    a = m.addAction('Browse Creation of Last Card')
+    a = m.addAction("Browse Creation of Last Card")
     a.triggered.connect(lambda _, s=mw.reviewer: qt.browse_last_card(s))
 
 

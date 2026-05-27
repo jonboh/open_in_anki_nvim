@@ -1,4 +1,5 @@
 {
   "terminal": null,
-  "editor": null
+  "editor": null,
+  "nvim_socket": ""
 }

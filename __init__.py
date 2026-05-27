@@ -53,42 +53,120 @@ def figure_out_terminal():
     return None
 
 
-def open_link(note_id, open_type, query, card_id):
-    config = mw.addonManager.getConfig(__name__)
-    terminal = config["terminal"]
-    editor = config["editor"]
-    run_last_tooltip = True
+def _config():
+    return mw.addonManager.getConfig(__name__) or {}
 
-    if terminal is None or len(terminal) == 0:
+
+def _editor():
+    return _config().get("editor") or "nvim"
+
+
+def _addon_socket():
+    s = _config().get("nvim_socket", "")
+    if s:
+        return os.path.expanduser(s)
+    state_dir = os.path.expanduser("~/.local/share/anki-nvim")
+    os.makedirs(state_dir, exist_ok=True)
+    return os.path.join(state_dir, "nvim.sock")
+
+
+def _try_remote_open(note_id, card_id, open_type, query, socket):
+    """
+    Ask an already-running Neovim (listening on *socket*) to open the note
+    in a new tab via the anki Lua plugin. Returns True on success.
+    """
+    lua_cmd = (
+        f"require([[anki]])._open_note([[{note_id}]], [[{card_id}]], "
+        f"[[{open_type}]], [[{query}]])"
+    )
+    try:
+        result = subprocess.run(
+            [_editor(), "--server", socket, "--remote-send",
+             f"<C-\\><C-n>:tabnew<CR>:lua {lua_cmd}<CR>"],
+            timeout=3,
+            capture_output=True,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def _spawn_nvim_window(note_id, card_id, open_type, query, socket):
+    """
+    Spawn a new terminal window running Neovim with --listen so future
+    open requests are sent to the same session.
+    """
+    config = _config()
+    terminal = config.get("terminal") or None
+
+    if not terminal:
         terminal = figure_out_terminal()
         if terminal is None:
             tooltip(
-                "Terminal not specified in config and could not find any sensible terminal to run. Please specify a terminal in config"
+                "Terminal not specified in config and could not find any "
+                "sensible terminal to run. Please specify a terminal in config"
             )
-            return
-        tooltip(
-            f"Terminal not specified in config. Found a sensible terminal '{terminal}' to use"
-        )
-        run_last_tooltip = False
-    if editor is None:
-        tooltip(f"Editor not specified in config. Using nvim as default")
-        run_last_tooltip = False
+            return False
+        tooltip(f"Terminal not specified in config. Found '{terminal}' to use")
 
-    if len(terminal) == 0 or str.find(terminal, " ") > 0:
-        tooltip("Space in terminal")
+    if str.find(terminal, " ") > 0:
+        tooltip("Space in terminal name — please quote or fix the config")
+        return False
+
+    editor = _editor()
+    nvim_args = [
+        editor,
+        "--listen", socket,
+        f"+lua require([[anki]])._open_note([[{note_id}]], [[{card_id}]], [[{open_type}]], [[{query}]])",
+    ]
+
+    terminal_bin = terminal.split()[0]
+
+    if terminal_bin in ("kitty", "alacritty", "foot", "st", "urxvt", "rxvt",
+                        "xterm", "uxterm", "termite", "terminology", "rio"):
+        cmd = [terminal, "--"] + nvim_args
+    elif terminal_bin == "wezterm":
+        cmd = [terminal, "start", "--"] + nvim_args
+    elif terminal_bin in ("gnome-terminal", "xfce4-terminal", "mate-terminal",
+                          "terminator", "tilix", "terminix", "lxterminal",
+                          "qterminal", "lilyterm"):
+        cmd = [terminal, "--"] + nvim_args
+    elif terminal_bin in ("konsole", "guake", "tilda"):
+        cmd = [terminal, "-e"] + nvim_args
+    else:
+        cmd = [terminal, "-e"] + nvim_args
+
+    try:
+        subprocess.Popen(
+            cmd,
+            stdin=None,
+            stdout=None,
+            stderr=None,
+            start_new_session=True,
+        )
+        return True
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def open_link(note_id, open_type, query, card_id):
+    socket = _addon_socket()
+
+    # 1. Try to reuse an existing Neovim session.
+    if os.path.exists(socket) and _try_remote_open(note_id, card_id, open_type, query, socket):
+        tooltip("Opened note in Neovim")
         return
 
-    subprocess.Popen(
-        [
-            terminal,
-            editor,
-            f"+lua require([[anki]])._open_note([[{note_id}]], [[{card_id}]], [[{open_type}]], [[{query}]])",
-        ],
-        stdin=None,
-        stdout=None,
-        stderr=None,
-    )
-    run_last_tooltip and tooltip("Opened note in Neovim")
+    # Stale socket — remove so the editor can bind cleanly.
+    if os.path.exists(socket):
+        try:
+            os.remove(socket)
+        except OSError:
+            pass
+
+    # 2. Spawn a new dedicated window.
+    if _spawn_nvim_window(note_id, card_id, open_type, query, socket):
+        tooltip("Opened note in Neovim")
 
 
 def open_link_browser():
